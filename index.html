@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CBP - Pure Director Room</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        body { background-color: #090d16; color: #f1f5f9; }
+    </style>
+</head>
+<body class="p-4 font-sans select-none">
+
+    <header class="flex flex-col sm:flex-row justify-between items-center mb-6 bg-slate-900 border border-slate-800 p-4 rounded-2xl gap-4 shadow-xl">
+        <div>
+            <h1 class="text-xl font-black text-rose-500 tracking-wider">CRICKET BROADCAST PRO</h1>
+            <p class="text-[11px] text-slate-400 uppercase font-bold tracking-widest">Pure Director Panel (No Cam/Mic Needed)</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <button id="createRoomBtn" onclick="initiateDirectorRoom()" class="bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow-lg shadow-rose-600/20 uppercase tracking-wider">
+                Generate Secret Room
+            </button>
+            <div id="codeDisplaySection" class="hidden items-center gap-2">
+                <span class="text-xs font-bold text-slate-400">SECRET CODE:</span>
+                <span id="secretCodeBox" class="bg-rose-500/10 border border-rose-500/30 text-rose-400 font-mono font-black text-lg px-4 py-1.5 rounded-xl tracking-widest">
+                    --------
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-3xl mx-auto mb-8">
+        <div class="bg-slate-950 border-2 border-red-600 rounded-2xl overflow-hidden shadow-2xl relative">
+            <div class="bg-red-600 text-white text-[10px] font-black px-3 py-1.5 uppercase tracking-widest absolute top-0 left-0 z-10 rounded-br-md">
+                🔴 MASTER ON-AIR SCREEN
+            </div>
+            <video id="mainProgramVideo" autoplay playsinline class="w-full aspect-video bg-black block object-cover"></video>
+        </div>
+    </main>
+
+    <section>
+        <div class="flex justify-between items-center mb-3 px-1">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Field Camera Grid (Click to Switch Live Stream)</h3>
+            <span id="activeCamCount" class="text-[11px] font-bold text-slate-500">Active Cameras: 0/4</span>
+        </div>
+        
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div onclick="switchLiveStream('cam1')" id="box-cam1" class="border border-slate-800 bg-slate-900 rounded-xl p-2 cursor-pointer opacity-20 scale-95 transition-all duration-300">
+                <div class="text-[10px] font-bold mb-1.5 flex justify-between uppercase"><span>Camera 1</span><span id="status-cam1" class="text-red-500">OFFLINE</span></div>
+                <video id="v-cam1" autoplay playsinline muted class="w-full aspect-video bg-black rounded-lg object-cover pointer-events-none"></video>
+            </div>
+            <div onclick="switchLiveStream('cam2')" id="box-cam2" class="border border-slate-800 bg-slate-900 rounded-xl p-2 cursor-pointer opacity-20 scale-95 transition-all duration-300">
+                <div class="text-[10px] font-bold mb-1.5 flex justify-between uppercase"><span>Camera 2</span><span id="status-cam2" class="text-red-500">OFFLINE</span></div>
+                <video id="v-cam2" autoplay playsinline muted class="w-full aspect-video bg-black rounded-lg object-cover pointer-events-none"></video>
+            </div>
+            <div onclick="switchLiveStream('cam3')" id="box-cam3" class="border border-slate-800 bg-slate-900 rounded-xl p-2 cursor-pointer opacity-20 scale-95 transition-all duration-300">
+                <div class="text-[10px] font-bold mb-1.5 flex justify-between uppercase"><span>Camera 3</span><span id="status-cam3" class="text-red-500">OFFLINE</span></div>
+                <video id="v-cam3" autoplay playsinline muted class="w-full aspect-video bg-black rounded-lg object-cover pointer-events-none"></video>
+            </div>
+            <div onclick="switchLiveStream('cam4')" id="box-cam4" class="border border-slate-800 bg-slate-900 rounded-xl p-2 cursor-pointer opacity-20 scale-95 transition-all duration-300">
+                <div class="text-[10px] font-bold mb-1.5 flex justify-between uppercase"><span>Camera 4</span><span id="status-cam4" class="text-red-500">OFFLINE</span></div>
+                <video id="v-cam4" autoplay playsinline muted class="w-full aspect-video bg-black rounded-lg object-cover pointer-events-none"></video>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        const SERVER_URL = 'wss://cbp-signaling.onrender.com';
+        let ws;
+        let peerConnections = {};
+        let connectedCount = 0;
+
+        function initiateDirectorRoom() {
+            ws = new WebSocket(SERVER_URL);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ type: 'create_room' }));
+                document.getElementById('createRoomBtn').classList.add('hidden');
+                document.getElementById('codeDisplaySection').classList.replace('hidden', 'flex');
+            };
+
+            ws.onmessage = async (message) => {
+                let data = JSON.parse(message.data);
+
+                if (data.type === 'room_created') {
+                    document.getElementById('secretCodeBox').innerText = data.roomCode;
+                }
+                
+                else if (data.type === 'camera_joined') {
+                    let pc = new RTCPeerConnection({
+                        iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }]
+                    });
+                    peerConnections[data.cameraId] = pc;
+
+                    connectedCount++;
+                    document.getElementById('activeCamCount').innerText = `Active Cameras: ${connectedCount}/4`;
+                    document.getElementById(`status-${data.cameraId}`).innerText = "ONLINE";
+                    document.getElementById(`status-${data.cameraId}`).className = "text-emerald-400 font-bold";
+                    document.getElementById(`box-${data.cameraId}`).classList.remove('opacity-20', 'scale-95');
+
+                    pc.ontrack = (event) => {
+                        document.getElementById(`v-${data.cameraId}`).srcObject = event.streams[0];
+                    };
+
+                    pc.onicecandidate = (event) => {
+                        if (event.candidate) {
+                            ws.send(JSON.stringify({ type: 'ice-candidate', targetId: data.cameraId, candidate: event.candidate }));
+                        }
+                    };
+
+                    let offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+                    await pc.setLocalDescription(offer);
+                    ws.send(JSON.stringify({ type: 'offer', targetId: data.cameraId, offer }));
+                }
+
+                if (data.type === 'answer') {
+                    await peerConnections[data.cameraId].setRemoteDescription(new RTCSessionDescription(data.answer));
+                }
+
+                else if (data.type === 'ice-candidate' && peerConnections[data.cameraId]) {
+                    await peerConnections[data.cameraId].addIceCandidate(new RTCIceCandidate(data.candidate));
+                }
+
+                else if (data.type === 'disconnect') {
+                    connectedCount = Math.max(0, connectedCount - 1);
+                    document.getElementById('activeCamCount').innerText = `Active Cameras: ${connectedCount}/4`;
+                    document.getElementById(`status-${data.cameraId}`).innerText = "OFFLINE";
+                    document.getElementById(`status-${data.cameraId}`).className = "text-red-500";
+                    document.getElementById(`box-${data.cameraId}`).className = "border border-slate-800 bg-slate-900 rounded-xl p-2 cursor-pointer opacity-20 scale-95 transition-all duration-300";
+                    
+                    let videoEl = document.getElementById(`v-${data.cameraId}`);
+                    if(document.getElementById('mainProgramVideo').srcObject === videoEl.srcObject) {
+                        document.getElementById('mainProgramVideo').srcObject = null;
+                    }
+                    videoEl.srcObject = null;
+                }
+            };
+        }
+
+        function switchLiveStream(camId) {
+            let cameraVideoTrack = document.getElementById(`v-${camId}`).srcObject;
+            if(!cameraVideoTrack) return; 
+
+            let mainScreen = document.getElementById('mainProgramVideo');
+            mainScreen.srcObject = cameraVideoTrack; 
+
+            ['cam1','cam2','cam3','cam4'].forEach(id => {
+                document.getElementById(`box-${id}`).classList.remove('border-red-600', 'ring-2', 'ring-red-600/40');
+            });
+            document.getElementById(`box-${camId}`).classList.add('border-red-600', 'ring-2', 'ring-red-600/40');
+        }
+    </script>
+</body>
+</html>
+
