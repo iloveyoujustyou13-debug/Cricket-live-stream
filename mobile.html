@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CBP - Connect Field Camera</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
+
+    <div id="joinGateWindow" class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
+        <h1 class="text-xl font-black text-rose-500 tracking-wider text-center uppercase mb-1">CBP STREAM NODE</h1>
+        <p class="text-xs text-slate-400 text-center mb-6">Write Code to Connect Cam & Mic</p>
+
+        <div class="mb-6">
+            <label class="block text-xs font-bold text-slate-400 uppercase mb-2 tracking-wider text-center">Enter Secret Code</label>
+            <input type="text" id="studioRoomCode" placeholder="CBP-XXXXXXXX" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-center font-mono font-black text-xl text-rose-400 uppercase tracking-widest focus:outline-none focus:border-rose-500 transition">
+        </div>
+
+        <button onclick="activateFieldCamera()" class="w-full bg-rose-600 hover:bg-rose-500 text-white font-bold py-4 rounded-xl transition shadow-lg tracking-wide uppercase text-xs">
+            Connect To Master Studio
+        </button>
+    </div>
+
+    <div id="streamingActiveWindow" class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl hidden text-center">
+        <div class="flex justify-center items-center gap-2 mb-4">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+            <h2 id="assignedNodeName" class="text-emerald-400 font-black tracking-widest uppercase text-sm">TRANSMITTING LIVE + AUDIO</h2>
+        </div>
+        <video id="localCamMonitor" autoplay playsinline muted class="w-full aspect-video bg-black rounded-xl object-cover border border-slate-800 mb-4"></video>
+        <p class="text-xs text-slate-500">Your camera video and microphone audio are feeding live into the Director's panel.</p>
+    </div>
+
+    <script>
+        const SERVER_URL = 'wss://cbp-signaling.onrender.com';
+        let localMediaStream;
+        let pc;
+        let ws;
+
+        async function activateFieldCamera() {
+            // বন্ধুদের পেস্ট করা কোডটি সঠিকভাবে নেওয়া হচ্ছে
+            let codeInput = document.getElementById('studioRoomCode').value.trim().toUpperCase();
+            if(!codeInput) return alert("দয়া করে ৮-ডিজিটের সিক্রেট কোডটি এখানে লিখুন বা পেস্ট করুন!");
+
+            try {
+                localMediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "environment" },
+                    audio: true 
+                });
+            } catch (err) {
+                return alert("ক্যামেরা বা মাইক্রোফোন অন করা যায়নি! ব্রাউজারে পারমিশন 'Allow' করুন।");
+            }
+
+            ws = new WebSocket(SERVER_URL);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ type: 'join_room', roomCode: codeInput }));
+            };
+
+            ws.onmessage = async (message) => {
+                let data = JSON.parse(message.data);
+
+                if (data.type === 'error') {
+                    alert(data.message);
+                    localMediaStream.getTracks().forEach(track => track.stop());
+                    ws.close();
+                    window.location.reload();
+                }
+
+                else if (data.type === 'joined_successfully') {
+                    document.getElementById('joinGateWindow').classList.add('hidden');
+                    document.getElementById('streamingActiveWindow').classList.remove('hidden');
+                    document.getElementById('assignedNodeName').innerText = `CONNECTED AS ${data.cameraId.toUpperCase()}`;
+                    document.getElementById('localCamMonitor').srcObject = localMediaStream;
+                }
+
+                else if (data.type === 'offer') {
+                    pc = new RTCPeerConnection({
+                        iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }]
+                    });
+
+                    localMediaStream.getTracks().forEach(track => pc.addTrack(track, localMediaStream));
+
+                    pc.onicecandidate = (event) => {
+                        if (event.candidate) {
+                            ws.send(JSON.stringify({ type: 'ice-candidate', candidate: event.candidate }));
+                        }
+                    };
+
+                    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                    let answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    ws.send(JSON.stringify({ type: 'answer', answer }));
+                }
+
+                else if (data.type === 'ice-candidate' && pc) {
+                    await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+                }
+            };
+        }
+    </script>
+</body>
+</html>
